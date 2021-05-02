@@ -1,0 +1,181 @@
+
+## Importing the data from the csv
+card_data <- read.csv("C:/Users/VANI/Desktop/IDS/creditcard.csv")
+library(caret)
+library(ranger)
+library(data.table)
+
+## Exploring the data
+summary(card_data)
+head(card_data,6)
+tail(card_data,6)
+dim(card_data)
+summary(card_data$Amount)
+table(card_data$Class)
+names(card_data)
+sd(card_data$Amount)
+var(card_data$Amount)
+
+
+## Using scale function to standardization features of our data. With scaling we avoid all exyreme values in our dataset to ensure smooth functioning of our model.
+card_data$Amount <- scale(card_data$Amount)
+NewData <- card_data[,-c(1)]
+head(NewData)
+
+
+
+
+
+
+
+## Spliting the data into train and test
+library(caTools)
+set.seed(123)
+sample_data <- sample.split(NewData$Class, SplitRatio = 0.8)
+trainingdata <- subset(NewData, sample_data == T)
+testdata <- subset(NewData, sample_data == F)
+dim(trainingdata)
+dim(testdata)
+
+
+
+
+
+
+
+## Fitting the logistic regression model
+LogisticModel <- glm(Class ~ ., trainingdata, family = binomial())
+summary(LogisticModel)
+plot(LogisticModel)
+
+
+## To access the performance  of our model using the ROC curve to analyze its performance
+library(pROC)
+LogiReg.Prediction <- predict(LogisticModel, testdata, probability = T)
+auc.gbm <- roc(testdata$Class, LogiReg.Prediction, plot = T, col = "cyan")
+print(auc.gbm)
+
+
+
+
+
+
+
+q<-card_data
+#RANDOM FOREST
+rf <- q
+rf$Class <- as.factor(rf$Class)
+
+rows <- nrow(rf)
+cols <- ncol(rf)
+
+set.seed(40)
+rf <- rf[sample(rows),]
+ntr <- as.integer(round(0.6*rows))
+
+rf.train <- rf[1:ntr, 1:cols]
+rf.test <- rf[(ntr+1):rows, -cols]
+rf.testc <- rf[(ntr+1):rows, cols]
+
+rf.testc <- as.data.frame(rf.testc)
+colnames(rf.testc)[1] <- c("Class")
+
+samp <- as.integer(0.5 * ntr)
+install.packages("randomForest")
+library(randomForest)
+model <- randomForest(Class~.,data = rf.train, importance = TRUE, ntree = 35, samplesize = samp,maxnodes = 45)
+
+rf.pred <- predict(model, rf.test)
+rf.testc$Pred <- rf.pred
+
+confusionMatrix(rf.testc$Pred, rf.testc$Class)
+
+rf.testc$Class <- ordered(rf.testc$Class, levels = c("0", "1"))
+rf.testc$Pred <- ordered(rf.testc$Pred, levels = c("0", "1"))
+auc(rf.testc$Class, rf.testc$Pred)
+
+cur = roc(rf.testc$Class, rf.testc$Pred, plot = TRUE, col = "red")
+print(cur) 
+
+
+
+
+
+
+
+
+
+## Fitting the decision tree model
+library(rpart)
+library(rpart.plot)
+DecisionTreeModel <- rpart(Class ~ ., card_data, method = 'class')
+predictedValue <- predict(DecisionTreeModel, card_data, type = 'class')
+
+prob <- predict(DecisionTreeModel, card_data, type = 'prob')
+
+
+rpart.plot(DecisionTreeModel)
+plot(DecisionTreeModel)
+
+mean(predictedValue==NewData$Class)
+
+
+
+
+
+
+
+
+
+
+
+## Using Artificial Neural Network (Setting the threshold as 0.5)
+
+library(neuralnet)
+NNModel <- neuralnet(Class ~ ., trainingdata, linear.output = F)
+plot(NNModel)
+NNPrediction <- compute(NNModel, testdata)
+NNResult <- NNPrediction$net.result
+NNResult <- ifelse(NNResult>0.5, 1, 0)
+mean(NNResult==testdata$Class)
+table(NNResult, testdata$Class)
+
+
+
+
+
+
+
+
+
+
+
+## Fitting a Gradiant Boosting Model
+library(gbm, quietly = T)
+# Setting Time to train the GBM Model
+system.time(
+  model_gbm <- gbm(Class ~ .,
+                   distribution = "bernoulli",
+                   data = rbind(trainingdata, testdata),
+                   n.trees = 500,
+                   interaction.depth = 3,
+                   n.minobsinnode = 100,
+                   shrinkage = 0.01,
+                   bag.fraction = 0.5,
+                   train.fraction = nrow(trainingdata) / 
+
+                                          (nrow(trainingdata) + nrow(testdata))
+  )
+)
+# Determining the bet iteration based on test data
+gbmiteration <- gbm.perf(model_gbm, method = "test")
+modelinfluence <- relative.influence(model_gbm, n.trees = gbmiteration, sort. = T)
+# Plot the gbm model
+plot(model_gbm)
+
+
+## Ploting and calculating AUC on test data
+gbm_test <- predict(model_gbm, newdata = testdata, n.trees = gbmiteration)
+gbm_auc <- roc(testdata$Class, gbm_test, plot = T, col = "maroon")
+print(gbm_auc)
+
